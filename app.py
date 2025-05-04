@@ -9,55 +9,51 @@ if "messages" not in st.session_state:
 # OpenAI APIキー（環境変数やSecretsに入れてください）
 openai.api_key = st.secrets["openai_api_key"]
 
-st.title("📚 AI教材室Bot（完全版）")
+st.set_page_config(page_title="AI 教材室Bot（完全版）", layout="wide")
+st.title("📚 AI 教材室Bot（完全版）")
+st.header("🧑\u200d🎓 生徒の質問に答えるAI")
 
-mode = st.radio("機能を選択", ["資料PDF表示", "生徒の質問に答えるAI", "数式・計算", "イメージ生成（DALL・E）"])
+# セッション履歴の初期化
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if mode == "生徒の質問に答えるAI":
-    st.header("💡 生徒の質問に答えるAI")
-    user_question = st.text_input("生徒の質問を入力してください")
+# 質問入力
+user_question = st.text_input("生徒の質問を入力してください")
 
-    if user_question:
-        # 履歴にユーザーの発言を追加
-        st.session_state.messages.append({"role": "user", "content": user_question})
+if user_question:
+    # 履歴にユーザーの質問を追加
+    st.session_state.messages.append({"role": "user", "content": user_question})
 
-        # GPT呼び出し（履歴ごと渡す）
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数式はLaTeX形式（$...$ または \[...\]）で必ず記述してください。"}
-            ] + st.session_state.messages
-        )
+    # GPTへ渡すメッセージ作成
+    messages = [
+        {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数学や理科など数式を含む場合はLaTeX数式モード（$ $）で必ず出力してください。"}
+    ] + st.session_state.messages
 
-        ai_reply = response["choices"][0]["message"]["content"]
+    # OpenAIへ問い合わせ
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",
+        messages=messages,
+    )
 
-        # 履歴にAIの発言を追加
-        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+    answer = response.choices[0].message['content']
 
-    # これまでの会話を表示
-    for msg in st.session_state.messages:
-        if msg["role"] == "user":
-            st.write(f"**あなた:** {msg['content']}")
-        else:
-            # LaTeX部分を検出して分割表示
-            parts = re.split(r'(\$.*?\$|\\\[.*?\\\])', msg["content"]) 
-            for part in parts:
-                if part.startswith("$") and part.endswith("$"):
-                    st.latex(part.strip("$"))
-                elif part.startswith("\\[") and part.endswith("\\]"):
-                    st.latex(part.strip("\\[ \\"]"))
-                else:
-                    st.write(part)
+    # 履歴にAIの返答を追加
+    st.session_state.messages.append({"role": "assistant", "content": answer})
 
-elif mode == "資料PDF表示":
-    st.header("📄 教材PDF表示")
-    st.write("教材PDFファイルをアップロードしてください")
-    st.file_uploader("PDFファイル", type="pdf")
+# === 履歴表示 ===
+st.write("---")
+st.subheader("🧭 これまでのやりとり（スレッド表示）")
 
-elif mode == "数式・計算":
-    st.header("📐 数式・計算モード")
-    st.write("ここは将来の拡張予定です")
-
-elif mode == "イメージ生成（DALL・E）":
-    st.header("🎨 イメージ生成モード")
-    st.write("ここは将来の拡張予定です")
+for message in st.session_state.messages:
+    if message["role"] == "user":
+        st.markdown(f"**💬 生徒**: {message['content']}")
+    else:
+        # LaTeXと文章を分ける
+        parts = re.split(r'(\$.*?\$)', message['content'])
+        for part in parts:
+            if part.startswith("$") and part.endswith("$"):
+                # LaTeX部分
+                st.latex(part.strip("$"))
+            else:
+                # 普通の文章
+                st.write(part)
