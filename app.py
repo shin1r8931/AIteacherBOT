@@ -1,13 +1,12 @@
 import streamlit as st
 from PyPDF2 import PdfReader
 from openai import OpenAI
+import re
 
-# OpenAIクライアントを初期化
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
 st.set_page_config(page_title="AI 教材室 Bot（完全版）", page_icon="📚")
 
-# タブの作成
 tabs = st.tabs(["📄 教材PDF表示", "🧑‍🎓 生徒の質問に答えるAI", "🧮 数式・計算", "🎨 イメージ生成（DALL-E）"])
 
 # --- 📄 教材PDF表示 ---
@@ -29,13 +28,21 @@ with tabs[1]:
     if user_question:
         with st.spinner("考え中..."):
             response = client.chat.completions.create(
-                model="gpt-4o",  # gpt-4o に変更（必要に応じて gpt-4-turbo も可）
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。"},
+                    {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。LaTeXで数式を書くときは $ や \\( で囲ってください。"},
                     {"role": "user", "content": user_question},
                 ],
             )
-            st.write(response.choices[0].message.content)
+            answer = response.choices[0].message.content
+
+            # LaTeX部分を検出して分割表示
+            parts = re.split(r'(\$.*?\$|\\\(.*?\\\))', answer)
+            for part in parts:
+                if re.match(r'^\$.*\$$|^\\\(.*\\\)$', part):
+                    st.latex(part.strip('$').strip('\\(').strip('\\)'))
+                else:
+                    st.write(part)
 
 # --- 🧮 数式・計算 ---
 with tabs[2]:
