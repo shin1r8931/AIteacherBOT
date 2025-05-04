@@ -1,85 +1,62 @@
-# app.py
 import streamlit as st
-from openai import OpenAI
 from PyPDF2 import PdfReader
-import tempfile
-import re
+from openai import OpenAI
 
-# ─ Streamlit の設定 ─────────────────────────────────────────
-st.set_page_config(page_title="AI 教材室 Bot（完全版）", layout="wide")
-st.title("📚 AI 教材室 Bot（完全版）")
-
-# ─ OpenAI クライアントの初期化 ──────────────────────────────
-# Streamlit Cloud の Secrets から読み込み
-# 事前に「Settings > Secrets」に以下を登録してください:
-# openai_api_key = "sk-XXXX..."
+# OpenAIクライアントを初期化
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
-# ─ サイドバーで機能切り替え ─────────────────────────────────
-mode = st.sidebar.radio(
-    "機能を選択",
-    ["教材PDF表示", "生徒の質問に答えるAI", "数式・計算", "イメージ生成（DALL·E）"],
-)
+st.set_page_config(page_title="AI 教材室 Bot（完全版）", page_icon="📚")
 
-if mode == "教材PDF表示":
-    st.header("📄 教材PDF表示")
-    uploaded_file = st.file_uploader("教材PDFファイルをアップロードしてください", type="pdf")
+# タブの作成
+tabs = st.tabs(["📄 教材PDF表示", "🧑‍🎓 生徒の質問に答えるAI", "🧮 数式・計算", "🎨 イメージ生成（DALL-E）"])
+
+# --- 📄 教材PDF表示 ---
+with tabs[0]:
+    st.header("教材PDF表示")
+    uploaded_file = st.file_uploader("PDFファイルをアップロードしてください", type="pdf")
     if uploaded_file:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(uploaded_file.read())
-            tmp_path = tmp.name
-        # PDFプレビュー
-        with open(tmp_path, "rb") as f:
-            base64_pdf = f.read()
-        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf.encode("base64").decode()}" width="700" height="900" type="application/pdf"></iframe>'
-        st.markdown(pdf_display, unsafe_allow_html=True)
-        # 抽出テキスト表示
-        reader = PdfReader(tmp_path)
+        pdf_reader = PdfReader(uploaded_file)
         text = ""
-        for page in reader.pages:
-            text += page.extract_text()
-        st.subheader("📑 教材PDFから抽出したテキスト")
-        st.write(text)
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        st.text_area("PDF内容", text, height=400)
 
-elif mode == "生徒の質問に答えるAI":
-    st.header("👂 生徒の質問に答えるAI")
-    user_q = st.text_input("生徒の質問を入力してください")
-    if user_q:
-        with st.spinner("AI が考え中…"):
-            res = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+# --- 🧑‍🎓 生徒の質問に答えるAI ---
+with tabs[1]:
+    st.header("生徒の質問に答えるAI")
+    user_question = st.text_input("生徒の質問を入力してください")
+
+    if user_question:
+        with st.spinner("考え中..."):
+            response = client.chat.completions.create(
+                model="gpt-4o",  # gpt-4o に変更（必要に応じて gpt-4-turbo も可）
                 messages=[
-                    {"role": "system", "content": "あなたは親切な家庭教師です。"},
-                    {"role": "user", "content": user_q},
+                    {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。"},
+                    {"role": "user", "content": user_question},
                 ],
-                temperature=0.5,
             )
-        ai_ans = res.choices[0].message.content
-        st.write(ai_ans)
+            st.write(response.choices[0].message.content)
 
-elif mode == "数式・計算":
-    st.header("🧮 数式・計算（簡易版）")
-    expr = st.text_input("計算したい式を入力してください（例: 2+3*5）")
-    if expr:
-        try:
-            # 危険なevalを避けるため、数字と演算子のみ簡易チェック
-            if re.fullmatch(r"[0-9+\-*/(). ]+", expr):
-                result = eval(expr)
-                st.success(f"結果: {result}")
-            else:
-                st.error("数式に不正な文字が含まれています。")
-        except Exception as e:
-            st.error(f"計算エラー: {e}")
+# --- 🧮 数式・計算 ---
+with tabs[2]:
+    st.header("数式・計算 (LaTeXサポート)")
+    expression = st.text_input("計算式または数式を入力してください (例: E=mc^2)")
+    if expression:
+        st.latex(expression)
 
-elif mode == "イメージ生成（DALL·E）":
-    st.header("🎨 イメージ生成（DALL·E）")
-    prompt = st.text_input("イメージを説明してください（例: 地球と月の距離のイメージ）")
-    if prompt:
-        with st.spinner("画像生成中…"):
-            img_res = client.images.generate(
-                prompt=prompt,
+# --- 🎨 イメージ生成（DALL-E） ---
+with tabs[3]:
+    st.header("イメージ生成（DALL-E）")
+    dalle_prompt = st.text_input("生成したい画像の説明を入力してください")
+
+    if dalle_prompt:
+        with st.spinner("画像を生成中..."):
+            response = client.images.generate(
+                model="dall-e-3",
+                prompt=dalle_prompt,
+                size="1024x1024",
+                quality="standard",
                 n=1,
-                size="512x512"
             )
-        img_url = img_res.data[0].url
-        st.image(img_url, caption=prompt)
+            image_url = response.data[0].url
+            st.image(image_url)
