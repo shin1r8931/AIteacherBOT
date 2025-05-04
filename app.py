@@ -1,67 +1,63 @@
 import streamlit as st
+import openai
 import re
-from openai import OpenAI
 
-# ── Streamlit page config ─────────────────────────────
-st.set_page_config(
-    page_title="AI 教材室Bot（教育現場版）",
-    layout="wide",
-)
+# セッション履歴を初期化
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# ── OpenAI クライアント初期化 ────────────────────────────
-# Streamlit Secrets に openai_api_key を登録しておいてください
-client = OpenAI(api_key=st.secrets["openai_api_key"])
+# OpenAI APIキー（環境変数やSecretsに入れてください）
+openai.api_key = st.secrets["openai_api_key"]
 
-# ── セッション履歴の準備 ───────────────────────────────
-if "history" not in st.session_state:
-    st.session_state.history = []
+st.title("📚 AI教材室Bot（完全版）")
 
-# ── サイドバー ────────────────────────────────────────
-st.sidebar.title("機能を選択")
-mode = st.sidebar.radio("", ["生徒の質問に答えるAI"])
-
-# ── メイン画面 ────────────────────────────────────────
-st.title("📚 AI 教材室Bot（教育現場版）")
+mode = st.radio("機能を選択", ["資料PDF表示", "生徒の質問に答えるAI", "数式・計算", "イメージ生成（DALL・E）"])
 
 if mode == "生徒の質問に答えるAI":
-    st.header("🎧 生徒の質問に答えるAI")
-    user_input = st.text_input("生徒の質問を入力してください", key="input")
+    st.header("💡 生徒の質問に答えるAI")
+    user_question = st.text_input("生徒の質問を入力してください")
 
-    if user_input:
-        with st.spinner("考え中..."):
-            # system + 過去履歴 + 今回の質問
-            messages = [
-                {"role": "system", "content": "あなたはやさしく、LaTeX数式も正しく表示するAI先生です。"}
-            ] + st.session_state.history + [
-                {"role": "user", "content": user_input}
-            ]
+    if user_question:
+        # 履歴にユーザーの発言を追加
+        st.session_state.messages.append({"role": "user", "content": user_question})
 
-            # GPT-4o への問い合わせ
-            resp = client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages
-            )
-            answer = resp.choices[0].message.content
+        # GPT呼び出し（履歴ごと渡す）
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数式はLaTeX形式（$...$ または \[...\]）で必ず記述してください。"}
+            ] + st.session_state.messages
+        )
 
-            # 履歴に追加
-            st.session_state.history.append({"role": "user", "content": user_input})
-            st.session_state.history.append({"role": "assistant", "content": answer})
+        ai_reply = response["choices"][0]["message"]["content"]
 
-    # ── スレッド表示 ─────────────────────────────────
-    for msg in st.session_state.history:
+        # 履歴にAIの発言を追加
+        st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+
+    # これまでの会話を表示
+    for msg in st.session_state.messages:
         if msg["role"] == "user":
-            st.markdown(f"**🧑‍🎓 生徒:** {msg['content']}")
+            st.write(f"**あなた:** {msg['content']}")
         else:
-            st.markdown("**👨‍🏫 AI先生:**")
-            # LaTeX と通常文を分割して描画
-            parts = re.split(r'(\$.*?\$)', msg["content"])
+            # LaTeX部分を検出して分割表示
+            parts = re.split(r'(\$.*?\$|\\\[.*?\\\])', msg["content"]) 
             for part in parts:
                 if part.startswith("$") and part.endswith("$"):
                     st.latex(part.strip("$"))
+                elif part.startswith("\\[") and part.endswith("\\]"):
+                    st.latex(part.strip("\\[ \\"]"))
                 else:
                     st.write(part)
 
-    # ── ログのダウンロード ───────────────────────────────
-    if st.button("💾 ログをダウンロード"):
-        log = "\n".join([f"{m['role']}︱{m['content']}" for m in st.session_state.history])
-        st.download_button("Download chat log", log, file_name="chat_log.txt")
+elif mode == "資料PDF表示":
+    st.header("📄 教材PDF表示")
+    st.write("教材PDFファイルをアップロードしてください")
+    st.file_uploader("PDFファイル", type="pdf")
+
+elif mode == "数式・計算":
+    st.header("📐 数式・計算モード")
+    st.write("ここは将来の拡張予定です")
+
+elif mode == "イメージ生成（DALL・E）":
+    st.header("🎨 イメージ生成モード")
+    st.write("ここは将来の拡張予定です")
