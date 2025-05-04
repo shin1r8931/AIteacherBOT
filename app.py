@@ -1,62 +1,67 @@
 import streamlit as st
-import openai
 import re
-from datetime import datetime
+from openai import OpenAI
 
-# OpenAI APIキー（StreamlitのSecretsから取得）
-openai.api_key = st.secrets["openai_api_key"]
+# ── Streamlit page config ─────────────────────────────
+st.set_page_config(
+    page_title="AI 教材室Bot（教育現場版）",
+    layout="wide",
+)
 
-st.set_page_config(page_title="AI教材室 Bot（完全対話＋LaTeX対応版）")
-st.title("📚 AI教材室 Bot（完全版）")
-st.header("🧠 生徒の質問に答えるAI")
+# ── OpenAI クライアント初期化 ────────────────────────────
+# Streamlit Secrets に openai_api_key を登録しておいてください
+client = OpenAI(api_key=st.secrets["openai_api_key"])
 
-# セッション履歴を初期化
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# ── セッション履歴の準備 ───────────────────────────────
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-# ユーザーの入力
-user_input = st.text_input("生徒の質問を入力してください", "")
+# ── サイドバー ────────────────────────────────────────
+st.sidebar.title("機能を選択")
+mode = st.sidebar.radio("", ["生徒の質問に答えるAI"])
 
-# ユーザー入力があれば履歴に追加
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
+# ── メイン画面 ────────────────────────────────────────
+st.title("📚 AI 教材室Bot（教育現場版）")
 
-    # OpenAIへのリクエスト用履歴（systemプロンプト + ユーザーとAIの履歴）
-    prompt_messages = [
-        {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数学や理科などの数式は必ずLaTeX形式（$ ... $ で囲む）で記述してください。分数、べき乗、掛け算などもLaTeXを使い、簡単な数値は文章でも良いですが、数式はLaTeXが優先です。"}
-    ] + st.session_state.messages
+if mode == "生徒の質問に答えるAI":
+    st.header("🎧 生徒の質問に答えるAI")
+    user_input = st.text_input("生徒の質問を入力してください", key="input")
 
-    # GPT呼び出し
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=prompt_messages
-    )
+    if user_input:
+        with st.spinner("考え中..."):
+            # system + 過去履歴 + 今回の質問
+            messages = [
+                {"role": "system", "content": "あなたはやさしく、LaTeX数式も正しく表示するAI先生です。"}
+            ] + st.session_state.history + [
+                {"role": "user", "content": user_input}
+            ]
 
-    ai_response = response.choices[0].message["content"]
+            # GPT-4o への問い合わせ
+            resp = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages
+            )
+            answer = resp.choices[0].message.content
 
-    # AIの返答も履歴に追加
-    st.session_state.messages.append({"role": "assistant", "content": ai_response})
+            # 履歴に追加
+            st.session_state.history.append({"role": "user", "content": user_input})
+            st.session_state.history.append({"role": "assistant", "content": answer})
 
-# --- 表示部 ---
+    # ── スレッド表示 ─────────────────────────────────
+    for msg in st.session_state.history:
+        if msg["role"] == "user":
+            st.markdown(f"**🧑‍🎓 生徒:** {msg['content']}")
+        else:
+            st.markdown("**👨‍🏫 AI先生:**")
+            # LaTeX と通常文を分割して描画
+            parts = re.split(r'(\$.*?\$)', msg["content"])
+            for part in parts:
+                if part.startswith("$") and part.endswith("$"):
+                    st.latex(part.strip("$"))
+                else:
+                    st.write(part)
 
-st.write("---")
-st.subheader("📝 これまでのやりとり")
-
-for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        st.markdown(f"**🧑 生徒:** {msg['content']}")
-    else:
-        # LaTeX数式の自動検出と表示
-        parts = re.split(r'(\$.*?\$)', msg['content'])
-        for part in parts:
-            if re.match(r'^\$.*\$$', part):
-                st.latex(part.strip("$"))
-            else:
-                st.write(part)
-
-# ログ保存（オプション）
-if st.button("📥 ログをダウンロードする"):
-    log_text = "\n".join([
-        f"[{datetime.now()}] {m['role']} -> {m['content']}" for m in st.session_state.messages
-    ])
-    st.download_button("Download Log", log_text, file_name="chat_log.txt")
+    # ── ログのダウンロード ───────────────────────────────
+    if st.button("💾 ログをダウンロード"):
+        log = "\n".join([f"{m['role']}︱{m['content']}" for m in st.session_state.history])
+        st.download_button("Download chat log", log, file_name="chat_log.txt")
