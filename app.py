@@ -1,59 +1,118 @@
 import streamlit as st
 import openai
 import re
+from PyPDF2 import PdfReader
 
-# セッション履歴を初期化
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# OpenAI APIキー（環境変数やSecretsに入れてください）
+# ——————————————————————————————
+# 1. ページ＆APIキー設定
+# ——————————————————————————————
+st.set_page_config(page_title="AI 教材室Bot（完全版）", layout="wide")
 openai.api_key = st.secrets["openai_api_key"]
 
-st.set_page_config(page_title="AI 教材室Bot（完全版）", layout="wide")
-st.title("📚 AI 教材室Bot（完全版）")
-st.header("🧑\u200d🎓 生徒の質問に答えるAI")
+# ——————————————————————————————
+# 2. サイドバーで機能選択
+# ——————————————————————————————
+mode = st.sidebar.radio(
+    "機能を選択",
+    [
+        "📄 教材PDF表示",
+        "💬 生徒の質問に答えるAI",
+        "🧮 数式・計算",
+        "🎨 イメージ生成 (DALL·E)",
+    ],
+)
 
-# セッション履歴の初期化
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# ——————————————————————————————
+# 3. 教材PDF表示
+# ——————————————————————————————
+if mode == "📄 教材PDF表示":
+    st.title("📄 教材PDF表示")
+    uploaded_file = st.file_uploader("教材PDFファイルをアップロードしてください", type="pdf")
+    if uploaded_file:
+        reader = PdfReader(uploaded_file)
+        full_text = ""
+        for page in reader.pages:
+            full_text += page.extract_text() or "" + "\n"
+        st.text_area("📖 PDF内容", full_text, height=400)
 
-# 質問入力
-user_question = st.text_input("生徒の質問を入力してください")
+# ——————————————————————————————
+# 4. 生徒の質問に答えるAI（完全対話＋LaTeX強化）
+# ——————————————————————————————
+elif mode == "💬 生徒の質問に答えるAI":
+    st.title("💬 生徒の質問に答えるAI")
 
-if user_question:
-    # 履歴にユーザーの質問を追加
-    st.session_state.messages.append({"role": "user", "content": user_question})
+    # セッションステートに履歴を保持
+    if "history" not in st.session_state:
+        st.session_state.history = [
+            {
+                "role": "system",
+                "content": (
+                    "あなたはやさしく、わかりやすく教える先生です。"
+                    "数学や理科など数式を含む場合は必ず LaTeX モード（$…$）で記述してください。"
+                    "外側の `[` や `{}` は不要です。"
+                ),
+            }
+        ]
 
-    # GPTへ渡すメッセージ作成
-    messages = [
-        {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数学や理科など数式を含む場合はLaTeX数式モード（$ $）で必ず出力してください。"}
-    ] + st.session_state.messages
+    # ユーザー入力
+    user_msg = st.chat_input("生徒の質問を入力してください")
+    if user_msg:
+        st.session_state.history.append({"role": "user", "content": user_msg})
 
-    # OpenAIへ問い合わせ
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=messages,
-    )
+        # GPT 呼び出し（過去のやりとりを丸ごと渡す）
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=st.session_state.history,
+        )
+        assistant_msg = response.choices[0].message.content
+        st.session_state.history.append(
+            {"role": "assistant", "content": assistant_msg}
+        )
 
-    answer = response.choices[0].message['content']
+    # 履歴を吹き出し表示
+    st.divider()
+    st.subheader("🧭 これまでのやりとり")
+    for msg in st.session_state.history[1:]:
+        if msg["role"] == "user":
+            st.chat_message("user").write(msg["content"])
+        else:
+            # LaTeX 部分を自動で判定して Markdown 出力
+            st.chat_message("assistant").markdown(msg["content"])
 
-    # 履歴にAIの返答を追加
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+# ——————————————————————————————
+# 5. 数式・計算（WolframAlpha風 簡易版）
+# ——————————————————————————————
+elif mode == "🧮 数式・計算":
+    st.title("🧮 数式・計算")
+    expr = st.text_input("計算したい式を入力してください（例: 2+3*5 や sqrt(16)）")
+    if expr:
+        with st.spinner("計算中..."):
+            try:
+                # 危険な eval を制限付きで
+                result = eval(
+                    expr,
+                    {"__builtins__": {}},
+                    {"sqrt": lambda x: x**0.5},
+                )
+                st.write(f"**結果**: {result}")
+            except Exception as e:
+                st.error(f"計算エラー: {e}")
 
-# === 履歴表示 ===
-st.write("---")
-st.subheader("🧭 これまでのやりとり（スレッド表示）")
-
-for message in st.session_state.messages:
-    if message["role"] == "user":
-        st.markdown(f"**💬 生徒**: {message['content']}")
-    else:
-        # LaTeXと文章を分ける
-        parts = re.split(r'(\$.*?\$)', message['content'])
-        for part in parts:
-            if part.startswith("$") and part.endswith("$"):
-                # LaTeX部分
-                st.latex(part.strip("$"))
-            else:
-                # 普通の文章
-                st.write(part)
+# ——————————————————————————————
+# 6. イメージ生成 (DALL·E)
+# ——————————————————————————————
+elif mode == "🎨 イメージ生成 (DALL·E)":
+    st.title("🎨 イメージ生成 (DALL·E)")
+    prompt = st.text_input("イメージを説明してください（例: 地球と月の距離のイメージ）")
+    if st.button("生成"):
+        with st.spinner("生成中..."):
+            try:
+                img_resp = openai.Image.create(
+                    prompt=prompt,
+                    n=1,
+                    size="512x512",
+                )
+                url = img_resp["data"][0]["url"]
+                st.image(url, caption=prompt)
+            except Exception as e:
+                st.error(f"生成エラー: {e}")
