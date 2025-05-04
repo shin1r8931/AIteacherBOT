@@ -1,85 +1,80 @@
-# ✅ AI 教材室 Bot まるっと完全統合版 (PDF読込 + AI質問応答 + Googleシート記録)
-
 import streamlit as st
 import openai
-import PyPDF2
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import datetime
+from PyPDF2 import PdfReader
 
-# -------------------- 設定 ----------------------
-st.set_page_config(page_title="AI 教材室 Bot (完全版)")
+# APIキー（Secretsから取得）
+openai_api_key = st.secrets["openai_api_key"]
+
+# OpenAIクライアント（新方式）
+from openai import OpenAI
+client = OpenAI(api_key=openai_api_key)
+
+# タイトル
+st.set_page_config(page_title="AI 教材室 Bot（完全版）")
 st.title("📚 AI 教材室 Bot （完全版）")
 
-# OpenAI APIキー（StreamlitのSecretsから取得）
-openai.api_key = st.secrets["openai_api_key"]
+# サイドバーのナビゲーション
+page = st.sidebar.radio("ページを選んでください", ["教材PDF表示", "生徒の質問に答えるAI", "数式・計算", "イメージ生成（DALL·E）"])
 
-# Google Sheets 認証
-scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_name('your-service-account.json', scope)
-client = gspread.authorize(creds)
-sheet = client.open("AI教材学習記録").worksheet("学習ログ")
+# -------------------- PDF表示 --------------------
+if page == "教材PDF表示":
+    st.header("📖 教材PDF表示")
+    pdf_file = st.file_uploader("教材PDFファイルをアップロードしてください", type="pdf")
 
-# ---------------- PDFアップロード ----------------
-st.header("📖 教材PDF表示")
-uploaded_file = st.file_uploader("教材PDFをアップロードしてください", type=["pdf"])
-pdf_text = ""
+    if pdf_file is not None:
+        pdf_reader = PdfReader(pdf_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+        st.write(text)
 
-if uploaded_file is not None:
-    pdf_reader = PyPDF2.PdfReader(uploaded_file)
-    for page in pdf_reader.pages:
-        pdf_text += page.extract_text() + "\n"
-    st.write("--- 教材内容 ---")
-    st.write(pdf_text)
+# -------------------- 生徒の質問に答える --------------------
+elif page == "生徒の質問に答えるAI":
+    st.header("💬 生徒の質問に答えるAI")
+    user_input = st.text_input("生徒の質問を入力してください")
 
-# ---------------- 生徒の質問に答えるAI ----------------
-st.header("💬 生徒の質問に答えるAI")
-student_name = st.text_input("生徒のお名前を入力してください")
-material_name = uploaded_file.name if uploaded_file else "未設定教材"
-page_number = st.text_input("ページ番号を入力してください (例: P.12)")
-question = st.text_input("生徒の質問を入力してください")
+    if user_input:
+        with st.spinner("考え中です..."):
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "あなたは優しい先生です。中学生向けに、わかりやすく簡潔に説明してください。"},
+                    {"role": "user", "content": user_input}
+                ]
+            )
+            ai_text = response.choices[0].message.content
+            st.write(ai_text)
 
-if st.button("AIに質問する") and question:
-    try:
-        context = f"以下は教材の内容です。\n{pdf_text}\n\n生徒の質問: {question}"
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[{"role": "system", "content": "あなたは優しい先生です。"},
-                      {"role": "user", "content": context}]
-        )
-        answer = response["choices"][0]["message"]["content"]
-        st.write("### 🧠 AIの答え")
-        st.write(answer)
+# -------------------- 数式・計算 --------------------
+elif page == "数式・計算":
+    st.header("🧠 数式・計算（Wolfram Alpha風 簡易版）")
+    calc_input = st.text_input("計算したい式を入力してください（例: 2+3*5 や sqrt(16)）")
 
-        # Google Sheetsへ記録
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        sheet.append_row([student_name, now, material_name, page_number, question, answer, ""])
-        st.success("記録しました！")
+    if calc_input:
+        with st.spinner("計算中です..."):
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "あなたは計算機です。与えられた数式を計算して、答えだけを返してください。"},
+                    {"role": "user", "content": calc_input}
+                ]
+            )
+            result = response.choices[0].message.content
+            st.write("計算結果: ", result)
 
-    except Exception as e:
-        st.error(f"エラーが発生しました: {e}")
+# -------------------- イメージ生成 --------------------
+elif page == "イメージ生成（DALL·E）":
+    st.header("🎨 イメージ生成（DALL·E）")
+    image_prompt = st.text_input("イメージを説明してください（例: 満開の桜の木と青空）")
 
-# ---------------- 数式計算・イメージ生成(オプション) ----------------
-st.header("🧮 数式・計算 (簡易版)")
-math_question = st.text_input("計算したい式を入力してください (例: sqrt(16) や 2+3*5)")
-
-if st.button("計算する") and math_question:
-    try:
-        result = eval(math_question)
-        st.write("計算結果:", result)
-    except:
-        st.write("計算エラーです。式を確認してください。")
-
-st.header("🎨 イメージ生成（DALL·E）")
-prompt = st.text_input("イメージを説明してください (例: 満開の桜のイメージ)")
-
-if st.button("イメージを生成する") and prompt:
-    try:
-        dalle_response = openai.Image.create(
-            prompt=prompt,
-            n=1,
-            size="256x256"
-        )
-        st.image(dalle_response['data'][0]['url'])
-    except Exception as e:
-        st.error(f"エラー: {e}")
+    if image_prompt:
+        with st.spinner("画像を生成中です..."):
+            response = client.images.generate(
+                model="dall-e-3",
+                prompt=image_prompt,
+                size="512x512",
+                quality="standard",
+                n=1
+            )
+            image_url = response.data[0].url
+            st.image(image_url)
