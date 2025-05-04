@@ -30,7 +30,7 @@ with tabs[1]:
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。LaTeXで数式を書くときは $ や \\( で囲ってください。"},
+                    {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数学の数式は必ずLaTeXの数式モードで記述し、$ で囲んでください。LaTeXの外側に[ ] や { } などは付けず、直接書いてください。"}
                     {"role": "user", "content": user_question},
                 ],
             )
