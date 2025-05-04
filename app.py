@@ -1,67 +1,62 @@
-# 📦 完全まるっと版（Teamプラン + 共通URL + 生徒5人セッション管理 + 完全LaTeX + 対話型Bot）
-
 import streamlit as st
 import openai
 import re
 from datetime import datetime
 
-# === 環境変数・APIキー ===
+# OpenAI APIキー（StreamlitのSecretsから取得）
 openai.api_key = st.secrets["openai_api_key"]
 
-# === セッション管理（生徒名で管理） ===
-st.header("📚 AI 教材室 Bot （完全版）")
+st.set_page_config(page_title="AI教材室 Bot（完全対話＋LaTeX対応版）")
+st.title("📚 AI教材室 Bot（完全版）")
+st.header("🧠 生徒の質問に答えるAI")
 
-# 生徒名入力（セッション名）
-student_name = st.text_input("あなたの名前を入力してください（例：Aくん、Bさん など）")
+# セッション履歴を初期化
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-if student_name:
-    st.success(f"{student_name} さん、こんにちは！ 質問をどうぞ。")
+# ユーザーの入力
+user_input = st.text_input("生徒の質問を入力してください", "")
 
-    # セッション履歴を保持
-    if "messages" not in st.session_state:
-        st.session_state.messages = {}
+# ユーザー入力があれば履歴に追加
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
-    if student_name not in st.session_state.messages:
-        st.session_state.messages[student_name] = []
+    # OpenAIへのリクエスト用履歴（systemプロンプト + ユーザーとAIの履歴）
+    prompt_messages = [
+        {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数学や理科などの数式は必ずLaTeX形式（$ ... $ で囲む）で記述してください。分数、べき乗、掛け算などもLaTeXを使い、簡単な数値は文章でも良いですが、数式はLaTeXが優先です。"}
+    ] + st.session_state.messages
 
-    # === ユーザーの質問受付 ===
-    user_question = st.text_input("生徒の質問を入力してください")
+    # GPT呼び出し
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",
+        messages=prompt_messages
+    )
 
-    if user_question:
-        # 履歴に追加（ユーザー）
-        st.session_state.messages[student_name].append({"role": "user", "content": user_question})
+    ai_response = response.choices[0].message["content"]
 
-        with st.spinner("師匠が考え中..."):
-            response = openai.ChatCompletion.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "あなたはやさしく、わかりやすく教える先生です。数式はLaTeXで書き、文章と組み合わせて生徒が理解しやすいように説明してください。生徒の追加質問にも丁寧に対話するBotです。"}
-                ] + st.session_state.messages[student_name]
-            )
+    # AIの返答も履歴に追加
+    st.session_state.messages.append({"role": "assistant", "content": ai_response})
 
-            answer = response.choices[0].message["content"]
+# --- 表示部 ---
 
-            # 履歴に追加（アシスタント）
-            st.session_state.messages[student_name].append({"role": "assistant", "content": answer})
+st.write("---")
+st.subheader("📝 これまでのやりとり")
 
-        # === LaTeX整形表示 ===
-        parts = re.split(r'(\$.*?\$)', answer)
+for msg in st.session_state.messages:
+    if msg["role"] == "user":
+        st.markdown(f"**🧑 生徒:** {msg['content']}")
+    else:
+        # LaTeX数式の自動検出と表示
+        parts = re.split(r'(\$.*?\$)', msg['content'])
         for part in parts:
             if re.match(r'^\$.*\$$', part):
-                st.latex(part.strip('$'))
+                st.latex(part.strip("$"))
             else:
                 st.write(part)
 
-    # === 過去の会話表示 ===
-    st.write("---")
-    st.subheader("これまでの会話")
-
-    for msg in st.session_state.messages[student_name]:
-        role = "👦 生徒" if msg["role"] == "user" else "👨‍🏫 師匠"
-        st.write(f"**{role}**: {msg['content']}")
-
-    # === ログ保存（簡易版：ログファイル出力はローカル環境用などに追加可能） ===
-    # 現在はセッション中だけ保存（Streamlitのセッション）
-
-else:
-    st.warning("まずはあなたの名前を入力してください。")
+# ログ保存（オプション）
+if st.button("📥 ログをダウンロードする"):
+    log_text = "\n".join([
+        f"[{datetime.now()}] {m['role']} -> {m['content']}" for m in st.session_state.messages
+    ])
+    st.download_button("Download Log", log_text, file_name="chat_log.txt")
